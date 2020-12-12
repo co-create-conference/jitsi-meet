@@ -7,8 +7,10 @@ import {
     getLocalParticipant as getLocalParticipantFromStore,
     getPinnedParticipant,
     getParticipantById,
+    getCurrentSpeakerIds,
     pinParticipant
 } from '../../../react/features/base/participants';
+import { VISIBILITY } from '../../../react/features/base/participants/constants';
 import { getTrackByMediaTypeAndParticipant } from '../../../react/features/base/tracks';
 import UIEvents from '../../../service/UI/UIEvents';
 import { SHARED_VIDEO_CONTAINER_TYPE } from '../shared_video/SharedVideo';
@@ -23,6 +25,7 @@ const logger = Logger.getLogger(__filename);
 
 const remoteVideos = {};
 let localVideoThumbnail = null;
+let localParticipant = null;
 
 let eventEmitter = null;
 
@@ -70,11 +73,16 @@ function getLocalParticipant() {
 const VideoLayout = {
     init(emitter) {
         eventEmitter = emitter;
+        localParticipant = getLocalParticipant();
 
         localVideoThumbnail = new LocalVideo(
             VideoLayout,
             emitter,
             this._updateLargeVideoIfDisplayed.bind(this));
+
+        if (localParticipant.visibility === VISIBILITY.INVISIBLE) {
+            localVideoThumbnail.setVisible(false);
+        }
 
         this.registerListeners();
     },
@@ -132,7 +140,7 @@ const VideoLayout = {
 
         this.onVideoTypeChanged(localId, stream.videoType);
 
-        localVideoThumbnail.changeVideo(stream);
+        localVideoThumbnail && localVideoThumbnail.changeVideo(stream);
 
         this._updateLargeVideoIfDisplayed(localId);
     },
@@ -147,7 +155,7 @@ const VideoLayout = {
         // FIXME: replace this call with a generic update call once SmallVideo
         // only contains a ReactElement. Then remove this call once the
         // Filmstrip is fully in React.
-        localVideoThumbnail.updateIndicators();
+        localVideoThumbnail && localVideoThumbnail.updateIndicators();
     },
 
     /**
@@ -155,7 +163,7 @@ const VideoLayout = {
      * @param {boolean} true to make the local video visible, false - otherwise
      */
     setLocalVideoVisible(visible) {
-        localVideoThumbnail.setVisible(visible);
+        localVideoThumbnail && localVideoThumbnail.setVisible(visible);
     },
 
     onRemoteStreamAdded(stream) {
@@ -268,6 +276,19 @@ const VideoLayout = {
             thumbnail.focus(pinnedParticipantID === thumbnail.getId()));
     },
 
+    addLocalParticipantContainer() {
+        if (localVideoThumbnail) {
+            localVideoThumbnail.setVisible(true);
+            const state = APP.store.getState();
+            const numSpeakers = getCurrentSpeakerIds(state).length;
+
+            logger.info('numSpeakers', numSpeakers);
+            if (numSpeakers === 1) {
+                largeVideo.setVisible(true);
+            }
+        }
+    },
+
     /**
      * Creates a participant container for the given id.
      *
@@ -323,6 +344,18 @@ const VideoLayout = {
         this._updateLargeVideoIfDisplayed(resourceJid, true);
     },
 
+    onTrackUpdated(id) {
+        const state = APP.store.getState();
+        const numSpeakers = getCurrentSpeakerIds(state).length;
+
+        logger.info('numSpeakers', numSpeakers);
+        if (numSpeakers === 0) {
+            this.updateLargeVideo(id, true);
+        } else {
+            largeVideo.setVisible(true);
+        }
+    },
+
     /**
      * On video muted event.
      */
@@ -347,7 +380,7 @@ const VideoLayout = {
     onDisplayNameChanged(id) {
         if (id === 'localVideoContainer'
             || APP.conference.isLocalId(id)) {
-            localVideoThumbnail.updateDisplayName();
+            localVideoThumbnail && localVideoThumbnail.updateDisplayName();
         } else {
             const remoteVideo = remoteVideos[id];
 
@@ -434,14 +467,21 @@ const VideoLayout = {
                 remoteVideo.removeConnectionIndicator();
             }
         }
-        localVideoThumbnail.removeConnectionIndicator();
+        localVideoThumbnail && localVideoThumbnail.removeConnectionIndicator();
     },
 
-    removeParticipantContainer(id) {
+    removeParticipantContainer(id, isLocal = false) {
         // Unlock large video
         if (this.getPinnedId() === id) {
             logger.info('Focused video owner has left the conference');
             APP.store.dispatch(pinParticipant(null));
+        }
+
+        if (isLocal) {
+            logger.info(`Removing local video: ${id}`);
+            localVideoThumbnail && localVideoThumbnail.setVisible(false);
+
+            return;
         }
 
         const remoteVideo = remoteVideos[id];

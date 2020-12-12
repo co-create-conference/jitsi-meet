@@ -1,3 +1,6 @@
+import Logger from 'jitsi-meet-logger';
+const logger = Logger.getLogger(__filename);
+
 import { NOTIFICATION_TIMEOUT, showNotification } from '../../notifications';
 import { set } from '../redux';
 
@@ -14,6 +17,7 @@ import {
     PARTICIPANT_LEFT,
     PARTICIPANT_UPDATED,
     PIN_PARTICIPANT,
+    SET_VISIBLE_PARTICIPANTS,
     SET_LOADABLE_AVATAR_URL
 } from './actionTypes';
 import {
@@ -496,6 +500,31 @@ export function setLoadableAvatarUrl(participantId, url) {
         participant: {
             id: participantId,
             loadableAvatarUrl: url
+        }
+    };
+}
+
+/**
+ * Set participant visibility.
+ *
+ * @param {Array} visibleIds - The ID of the conference participant to pin or null.
+ * @param {Array} invisibleIds - The ID of the conference participant to pin or null.
+ * @returns {{
+ *     type: PARTICIPANT_UPDATED,
+ *     participant: {
+ *         id: string,
+ *         visibility: boolean,
+ *     }
+ * }}
+ */
+export function setVisibilityParticipants(visibleIds, invisibleIds) {
+    logger.info('setVisibilityParticipants', visibleIds, invisibleIds);
+
+    return {
+        type: SET_VISIBLE_PARTICIPANTS,
+        data: {
+            visibleIds,
+            invisibleIds
         }
     };
 }

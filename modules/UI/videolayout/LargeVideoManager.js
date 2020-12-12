@@ -12,7 +12,8 @@ import {
     JitsiParticipantConnectionStatus
 } from '../../../react/features/base/lib-jitsi-meet';
 import { VIDEO_TYPE } from '../../../react/features/base/media';
-import { getParticipantById } from '../../../react/features/base/participants';
+import { getParticipantById, getCurrentSpeakerIds } from '../../../react/features/base/participants';
+import { VISIBILITY } from '../../../react/features/base/participants/constants';
 import { CHAT_SIZE } from '../../../react/features/chat';
 import {
     updateKnownLargeVideoResolution
@@ -188,7 +189,7 @@ export default class LargeVideoManager {
         if (this.updateInProcess || !this.newStreamData) {
             return;
         }
-
+        logger.debug('scheduleLargeVideoUpdate');
         this.updateInProcess = true;
 
         // Include hide()/fadeOut only if we're switching between users
@@ -234,9 +235,11 @@ export default class LargeVideoManager {
                                 === JitsiParticipantConnectionStatus.ACTIVE
                         || wasUsersImageCached);
 
+            const hasSpeaker = getCurrentSpeakerIds(APP.store.getState()).length > 0;
             const showAvatar
                 = isVideoContainer
-                    && ((APP.conference.isAudioOnly() && videoType !== VIDEO_TYPE.DESKTOP) || !isVideoRenderable);
+                    && ((APP.conference.isAudioOnly() && videoType !== VIDEO_TYPE.DESKTOP) || !isVideoRenderable)
+                    && hasSpeaker;
 
             let promise;
 
@@ -276,6 +279,12 @@ export default class LargeVideoManager {
 
             this.videoContainer.positionRemoteStatusMessages();
 
+            if (hasSpeaker) {
+                this.videoContainer.show();
+            } else {
+                this.videoContainer.hide();
+            }
+
             // resolve updateLargeVideo promise after everything is done
             promise.then(resolve);
 
@@ -287,6 +296,19 @@ export default class LargeVideoManager {
             this.eventEmitter.emit(UIEvents.LARGE_VIDEO_ID_CHANGED, this.id);
             this.scheduleLargeVideoUpdate();
         });
+    }
+
+    /**
+     * Shows or hides the local video container.
+     * @param {boolean} true to make the local video container visible, false
+     * otherwise
+     */
+    setVisible(visible) {
+        if (visible) {
+            this.videoContainer.show();
+        } else {
+            this.videoContainer.hide();
+        }
     }
 
     /**

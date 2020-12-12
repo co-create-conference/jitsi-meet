@@ -1,6 +1,9 @@
 // @flow
+/* eslint no-lonely-if: 0 */
 
 import Logger from 'jitsi-meet-logger';
+
+// import _difference from 'lodash/difference';
 
 import {
     createApiEvent,
@@ -15,11 +18,14 @@ import {
 import { parseJWTFromURLParams } from '../../react/features/base/jwt';
 import JitsiMeetJS, { JitsiRecordingConstants } from '../../react/features/base/lib-jitsi-meet';
 import { pinParticipant } from '../../react/features/base/participants';
+import { setVisibilityParticipants } from '../../react/features/base/participants/actions';
+import { VISIBILITY, PARTICIPANT_ROLE } from '../../react/features/base/participants/constants';
 import {
     processExternalDeviceRequest
 } from '../../react/features/device-selection/functions';
 import { isEnabled as isDropboxEnabled } from '../../react/features/dropbox';
 import { toggleE2EE } from '../../react/features/e2ee/actions';
+import { setFilmstripVisible } from '../../react/features/filmstrip';
 import { invite } from '../../react/features/invite';
 import {
     captureLargeVideoScreenshot,
@@ -30,7 +36,7 @@ import { toggleLobbyMode } from '../../react/features/lobby/actions.web';
 import { RECORDING_TYPES } from '../../react/features/recording/constants';
 import { getActiveSession } from '../../react/features/recording/functions';
 import { muteAllParticipants } from '../../react/features/remote-video-menu/actions';
-import { toggleTileView } from '../../react/features/video-layout';
+import { toggleTileView, setTileView } from '../../react/features/video-layout';
 import { setVideoQuality } from '../../react/features/video-quality';
 import { getJitsiMeetTransport } from '../transport';
 
@@ -211,6 +217,106 @@ function initCommands() {
             logger.debug('Set video quality command received');
             sendAnalytics(createApiEvent('set.video.quality'));
             APP.store.dispatch(setVideoQuality(frameHeight));
+        },
+        'set-filmstrip-visible': visible => {
+            APP.store.dispatch(setFilmstripVisible(visible));
+        },
+        'set-room-data': data => {
+            logger.info('set-room-data', data);
+            const { isCamOn, isMicOn, speakerEmails, isOpenAll } = data;
+            const visibleIds = [];
+            const invisibleIds = [];
+            const currentSpeakers = [];
+
+            if (isMicOn !== undefined) {
+                APP.conference.muteAudio(!isMicOn);
+            }
+            if (isCamOn !== undefined) {
+                APP.conference.muteVideo(!isCamOn);
+            }
+            if (speakerEmails !== undefined) {
+                const participants = APP.store.getState()['features/base/participants'];
+
+                logger.debug('participants', participants);
+                participants.forEach(({ id, visibility, email, role }) => {
+                    let isVisible = speakerEmails.indexOf(email) >= 0;
+
+                    if (isVisible === false && isOpenAll === true) {
+                        if (role === PARTICIPANT_ROLE.MODERATOR) {
+                            isVisible = visibility === VISIBILITY.VISIBLE;
+                        } else {
+                            isVisible = true;
+                        }
+                    }
+
+                    if (isVisible === true) {
+                        currentSpeakers.push(id);
+                    }
+                    if (visibility === VISIBILITY.VISIBLE) {
+                        if (isVisible === false) {
+                            invisibleIds.push(id);
+                        }
+                    } else if (visibility === VISIBILITY.INVISIBLE) {
+                        if (isVisible === true) {
+                            visibleIds.push(id);
+                        }
+                    }
+                });
+                APP.store.dispatch(setVisibilityParticipants(visibleIds, invisibleIds, currentSpeakers));
+                setTimeout(() => {
+                    APP.store.dispatch(setTileView(currentSpeakers.length > 1));
+                    if (currentSpeakers.length === 1) {
+                        sendAnalytics(createApiEvent('participant.pinned'));
+                        APP.store.dispatch(pinParticipant(currentSpeakers[0]));
+                    }
+                }, 300);
+            }
+        },
+        'set-visible-participants': emails => {
+            console.log('set-visible-participants ids', emails);
+            const participants = APP.store.getState()['features/base/participants'];
+
+            const visibleIds = [];
+            const invisibleIds = [];
+            const currentSpeakers = [];
+
+            participants.forEach(({ id, visibility, email }) => {
+                const isVisible = emails.indexOf(email) >= 0;
+
+                if (isVisible) {
+                    currentSpeakers.push(id);
+                }
+                if (visibility === VISIBILITY.VISIBLE) {
+                    if (!isVisible) {
+                        invisibleIds.push(id);
+                    }
+                } else if (visibility === VISIBILITY.INVISIBLE) {
+                    if (isVisible) {
+                        visibleIds.push(id);
+                    }
+                }
+            });
+            APP.store.dispatch(setVisibilityParticipants(visibleIds, invisibleIds, currentSpeakers));
+
+            // sendAnalytics(createApiEvent('participant.pinned'));
+            // if (currentSpeakers.length === 1) {
+            //     APP.store.dispatch(pinParticipant(currentSpeakers[0]));
+            // } else {
+            //     APP.store.dispatch(pinParticipant(null));
+            // }
+            setTimeout(() => {
+                APP.store.dispatch(setTileView(currentSpeakers.length > 1));
+                if (currentSpeakers.length === 1) {
+                    sendAnalytics(createApiEvent('participant.pinned'));
+                    APP.store.dispatch(pinParticipant(currentSpeakers[0]));
+                }
+            }, 300);
+
+            // const visibleIds = participants
+            //     .filter(participant => participant.visibility === VISIBILITY.VISIBLE)
+            //     .map(participant => participant.id);
+            //
+            // console.log('set-visible-participants visibleIds', visibleIds);
         },
 
         /**
